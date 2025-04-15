@@ -546,6 +546,8 @@ def load_visits_v1(visits_path):
                        "dsevidence", "raiuptake", "lbtgab", "lb_basaltg", "lblstimulatedtg", "lbtgablevels", "trrai",
                        "trsurgery", "trexternalradio", "trother"]
 
+    new_visit["id"] = range(1, len(new_visit) + 1)
+
     new_visit = new_visit.drop(new_visit[new_visit['patient_id'] == 'Patient_id'].index)
     new_visit=new_visit[pd.to_numeric(new_visit['id'], errors='coerce').notnull()]
 
@@ -568,7 +570,7 @@ def load_visits_v1(visits_path):
          'raiuptake': 0, 'lbtgab': 0, 'lb_basaltg': 0, 'lbtgablevels': 0})
 
 
-    new_visit.id = pd.to_numeric(new_visit.id, downcast='integer')
+#    new_visit.id = pd.to_numeric(new_visit.id, downcast='integer')
     new_visit.ncnormalresidualtissue = pd.to_numeric(new_visit.ncnormalresidualtissue, downcast='integer')
     new_visit.ncsuspiciousresidualtissue = pd.to_numeric(new_visit.ncsuspiciousresidualtissue, downcast='integer')
     new_visit.ncsuspiciouslympnodes = pd.to_numeric(new_visit.ncsuspiciouslympnodes, downcast='integer')
@@ -642,6 +644,8 @@ def load_visits_v2(visits_path):
         "trexternalradio",
         "trother"
     ]].copy()
+
+    new_visit["id"] = range(1, len(new_visit) + 1)
 
     #new_visit = new_visit.drop(new_visit[new_visit['patient_id'] == 'Patient_id'].index)
     #new_visit=new_visit[pd.to_numeric(new_visit['id'], errors='coerce').notnull()]
@@ -953,7 +957,7 @@ for p, row in patient.iterrows():
     count += 1
     if count%1000 == 0:
         print(count)
-        break
+
 
     visits_count_12m = 0
     included_visits_count_12m = 0
