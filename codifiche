@@ -1,0 +1,19 @@
+
+Patients
+ {'hilymphnodemetastasisnum': 0, 'hilymphnodemetastasis': 0, 'hiextraextension': 0, 'hylympnodesize': 0,
+         'rra': 0})
+
+new_patient.rradate.fillna('',inplace=True)
+new_patient.birthdate.fillna('',inplace=True)
+
+Visits
+
+new_visit=new_visit.fillna(
+        {'ncifsuspiciouslympnodespresent': 0, 'imgsuspiciousneck': 0, 'imgsuspiciousdistantmeta': 0, 'dsevidence': 0,
+         'raiuptake': 0, 'lbtgab': 0, 'lb_basaltg': 0, 'lbtgablevels': 0})
+
+
+Surgeries
+
+new_surgery=new_surgery.fillna({'prophylacticcentralneckdissection': 0})
+
