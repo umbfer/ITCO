@@ -29,8 +29,9 @@ csv_output_file= 'output/output_short.csv'
 # per il solo paziente con id 1234
 # filter_on_patient = 1234
 
-filter_on_patient = "1-36071"
-filter_on_patient = None
+filter_on_patient = False
+#,"101-11198"
+patients_selection = ["1-3127"]
 
 
 use_v2 = True
@@ -38,7 +39,7 @@ use_v2 = True
 # Se True, valuta i criteri di inclusione/esclusione
 perform_exclusion = True
 # Se True, esclude i pazienti che non hanno alcuna surgery
-skip_missing_surgery = False
+skip_missing_surgery = True
 # Se True, esclude i pazienti che non hanno alcuna visit
 skip_missing_visit = False
 # Se True, calcola la variabile ata_risk
@@ -60,7 +61,7 @@ def get_age(local_birth_date, reference_date):
 
 def get_last_surgery(p):
     surgeries = surgery[surgery['patient_id'] == p]
-    if len(surgeries.index)==0:
+    if surgeries.empty:
         return None
 
     date = max(surgeries['sgdateofsurgery'])
@@ -70,7 +71,7 @@ def get_last_surgery(p):
 def get_first_surgery(p):
     surgeries=surgery[surgery['patient_id'] == p]
 
-    if len(surgeries.index) == 0:
+    if surgeries.empty:
         return None
 
     date=min(surgeries['sgdateofsurgery'])
@@ -825,6 +826,7 @@ def load_patients_v1(patients_path):
     if filter_on_patient:
         new_patient = new_patient[new_patient['id'] == filter_on_patient]
 
+
     new_patient.rradate.fillna('',inplace=True)
     new_patient.birthdate.fillna('',inplace=True)
 
@@ -897,7 +899,7 @@ def load_patients_v2(patients_path):
         "hilymphnodemetastasisnum", "hinumberofremovedlymphnodes",
         "hylympnodesize", "satoptm", "forcedm", "hitumorsize",
         "hitumoralfoci", "invasionofstrapmuscles","surgery_count", "atarisk",
-        "dt_initial_treatment"
+        "dt_initial_treatment", "initial_treatment_complete"
     ]].copy()
 
 
@@ -922,8 +924,9 @@ def load_patients_v2(patients_path):
 
 #    new_patient.id=pd.to_numeric(new_patient.id)
 
+
     if filter_on_patient:
-        new_patient = new_patient[new_patient['id'] == filter_on_patient]
+        new_patient = new_patient[new_patient['id'].isin(patients_selection)]
 
     new_patient.rradate.fillna('',inplace=True)
     new_patient.birthdate.fillna('',inplace=True)
@@ -981,7 +984,7 @@ def load_surgery_v1(surgeries_path):
     new_surgery.patient_id = pd.to_numeric(new_surgery.patient_id)
 
     if filter_on_patient:
-        new_surgery = new_surgery[new_surgery['patient_id'] == filter_on_patient]
+        new_surgery = new_surgery[new_surgery['patient_id'].isin(patients_selection)]
 
     new_surgery.id=pd.to_numeric(new_surgery.id, downcast='integer')
 
@@ -1027,7 +1030,7 @@ def load_surgery_v2(surgeries_path):
    # new_surgery.patient_id = pd.to_numeric(new_surgery.patient_id)
 
     if filter_on_patient:
-        new_surgery = new_surgery[new_surgery['patient_id'] == filter_on_patient]
+        new_surgery = new_surgery[new_surgery['patient_id'].isin(patients_selection)]
 
     #new_surgery.id=pd.to_numeric(new_surgery.id, downcast='integer')
 
@@ -1061,7 +1064,7 @@ def load_visits_v1(visits_path):
     new_visit.patient_id = pd.to_numeric(new_visit.patient_id)
 
     if filter_on_patient:
-        new_visit = new_visit[new_visit['patient_id'] == filter_on_patient]
+        new_visit = new_visit[new_visit['patient_id'].isin(patients_selection)]
 
 #    new_visit.date =new_visit.date.apply(lambda x: dateparser.parse(x, languages=['it']))
     new_visit["date"] = pd.to_datetime(new_visit["date"], format="%Y-%m-%d", errors="coerce")
@@ -1172,7 +1175,7 @@ def load_visits_v2(visits_path):
     #new_visit.patient_id = pd.to_numeric(new_visit.patient_id)
 
     if filter_on_patient:
-        new_visit = new_visit[new_visit['patient_id'] == filter_on_patient]
+        new_visit = new_visit[new_visit['patient_id'].isin(patients_selection)]
 
     # nel formato v2 le date sono nella forma US
     #new_visit.date =new_visit.date.apply(lambda x: dateparser.parse(x, languages=['it']))
@@ -1219,11 +1222,12 @@ print(f'Loading patients from file {patients_path}')
 patient = load_patients_v2(patients_path)
 print(f'Loading surgeries from file {surgeries_path}')
 surgery = load_surgery_v2(surgeries_path)
+surgery = surgery[surgery['sgapproach'].notna()]
 print(f'Loading visits from file {visits_path}')
 visit = load_visits_v2(visits_path)
 
 if filter_on_patient:
-    patient=patient[patient['id'] == filter_on_patient]
+    patient=patient[patient['id'].isin(patients_selection)]
 
 # Applicazione criteri di esclusione su patient
 
@@ -1241,19 +1245,56 @@ no6mvisits = 0
 
 if perform_exclusion:
 
-    # 1.	Carcinoma midollare della tiroide (“Histology cancer type”=2)
-    for index, row in patient[patient['hicancertype'] == 2].iterrows():
-        initial_exclusion[row['id']] = 1
+    # Inizializza i contatori per ciascun criterio
+    patient_exclusion_criteria1 = 0  # Carcinoma midollare
+    patient_exclusion_criteria2 = 0  # Carcinoma anaplastico
+    patient_exclusion_criteria3 = 0  # UMP
+    patient_exclusion_criteria4 = 0  # NIFTP
+    patient_exclusion_criteria5 = 0  # Trattamento incompleto
+    patient_exclusion_criteria6 = 0  # Trattamento completo ma RRA mancante o nullo
 
-    # 2.	Carcinoma anaplastico della tiroide (“Histology subtypes” =12)
-    # 3.	UMP  (“Histology subtypes”  = 11)
-    # 4.	NIFTP (“Histology subtypes” = 14)
-    for index, row in patient[patient['hihistologicsubtypes'].isin([11,12,14])].iterrows():
-        initial_exclusion[row['id']] = 1
+    # 1. Carcinoma midollare della tiroide (“Histology cancer type”=2)
+    for pid in patient.loc[patient['hicancertype'] == 2, 'id']:
+        initial_exclusion[pid] = 1
+        patient_exclusion_criteria1 += 1
 
-    # 5.	Non noto RRA (“RRA”=0 or Na)
-    for index, row in patient[patient['rra'].isna() | (patient['rra'] == 0)].iterrows():
-        initial_exclusion[row['id']] = 1
+    # 2–4. Histology subtypes = 12 (anaplastico), 11 (UMP), 14 (NIFTP)
+    for pid, subtype in patient.loc[
+        patient['hihistologicsubtypes'].isin([11, 12, 14]), ['id', 'hihistologicsubtypes']].values:
+        initial_exclusion[pid] = 1
+        if subtype == 12:
+            patient_exclusion_criteria2 += 1
+        elif subtype == 11:
+            patient_exclusion_criteria3 += 1
+        elif subtype == 14:
+            patient_exclusion_criteria4 += 1
+
+    # 5. Trattamento iniziale incompleto (initial_treatment_complete = 0)
+    for pid in patient.loc[patient['initial_treatment_complete'] == 0, 'id']:
+        initial_exclusion[pid] = 1
+        patient_exclusion_criteria5 += 1
+
+    # 6. Trattamento completo ma RRA mancante o nullo
+    for pid in patient.loc[
+        (patient['initial_treatment_complete'] == 1) &
+        (patient['rra'].isna() | (patient['rra'] == 0)),
+        'id'
+    ]:
+        initial_exclusion[pid] = 1
+        patient_exclusion_criteria6 += 1
+
+    # Stampa finale dei conteggi
+    print(f"Patient exclusion criteria 1: {patient_exclusion_criteria1}")
+    print(f"Patient exclusion criteria 2: {patient_exclusion_criteria2}")
+    print(f"Patient exclusion criteria 3: {patient_exclusion_criteria3}")
+    print(f"Patient exclusion criteria 4: {patient_exclusion_criteria4}")
+    print(f"Patient exclusion criteria 5: {patient_exclusion_criteria5}")
+    print(f"Patient exclusion criteria 6: {patient_exclusion_criteria6}")
+
+    log_debug(f'Total initial exclusions: {len(initial_exclusion)} patients')
+
+    # Filtra il dataframe escludendo i pazienti individuati
+    patient = patient[~patient['id'].isin(initial_exclusion.keys())]
 
     # Applicazione criteri di esclusione su visit
 
@@ -1319,6 +1360,57 @@ print(f'Exclusion criteria 4:  {exclusion_criteria4}')
 print(f'Exclusion criteria 5:  {exclusion_criteria5}')
 print(f'Exclusion criteria 6:  {exclusion_criteria6}')
 
+
+def get_values_from_prev_visit_old(row):
+    patient_id = row["patient_id"]
+    current_date = row["date"]
+
+    # Cerca visite precedenti dello stesso paziente
+    previous_visits = visit[
+        (visit["patient_id"] == patient_id) &
+        (visit["date"] < current_date)
+    ]
+
+    if previous_visits.empty:
+        return pd.Series(
+            [-1, -1, -1, -1, -1, -1],
+            index=[
+                "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
+                "var_lbtgablevels", "var_lb_basaltg"
+            ]
+        )
+
+    # Estrai la visita precedente più recente
+    prev_row = previous_visits.loc[previous_visits["date"].idxmax()]
+
+    prev_id = int(prev_row.get("id", -1))
+    prev_lbtgab = int(prev_row.get("lbtgab", -1))
+    prev_lbtgablevels = float(prev_row.get("lbtgablevels", -1))
+    prev_lb_basaltg = float(prev_row.get("lb_basaltg", -1))
+
+    # Calcolo delle variazioni (percentuali), con fallback a -1
+    if pd.notna(row["lbtgablevels"]) and pd.notna(prev_lbtgablevels) and prev_lbtgablevels != 0:
+        var_lbtgablevels = ((row["lbtgablevels"] - prev_lbtgablevels) / prev_lbtgablevels) * 100
+    else:
+        var_lbtgablevels = -1
+
+    if pd.notna(row["lb_basaltg"]) and pd.notna(prev_lb_basaltg) and prev_lb_basaltg != 0:
+        var_lb_basaltg = ((row["lb_basaltg"] - prev_lb_basaltg) / prev_lb_basaltg) * 100
+    else:
+        var_lb_basaltg = -1
+
+    return pd.Series([
+        prev_id,
+        prev_lbtgab,
+        prev_lbtgablevels,
+        prev_lb_basaltg,
+        var_lbtgablevels,
+        var_lb_basaltg
+    ], index=[
+        "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
+        "var_lbtgablevels", "var_lb_basaltg"
+    ])
+
 # Individuo la visita precedente più recent e calcolo
 # le variazioni percentuali per i due parametri
 def get_values_from_prev_visit(row):
@@ -1333,12 +1425,13 @@ def get_values_from_prev_visit(row):
 
     if previous_visits.empty:
         return pd.Series(
-            [None, None, None, None, None, None],
+            [-1, -1, -1, -1, -1, -1],
             index=[
                 "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
                 "var_lbtgablevels", "var_lb_basaltg"
             ]
         )
+
 
     # Estrae la visita più vicina nel tempo
     prev_row = previous_visits.loc[previous_visits["date"].idxmax()]
@@ -1372,10 +1465,12 @@ def get_values_from_prev_visit(row):
         "var_lbtgablevels", "var_lb_basaltg"
     ])
 
-visit[[
-    "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
-    "var_lbtgablevels", "var_lb_basaltg"
-]] = visit.apply(get_values_from_prev_visit, axis=1)
+if not visit.empty:
+    xxx = visit.apply(get_values_from_prev_visit, axis=1)
+    visit[[
+        "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
+        "var_lbtgablevels", "var_lb_basaltg"
+    ]] = xxx
 
 
 p_ata_risk = dict()
@@ -1393,13 +1488,11 @@ if eval_ata_risk:
 
     #  Estensione extratiroidea macroscopica ["Histology extra-thyroid extension" &gt;2]
     cond3_h = (
-            patient_h_risk['hiextraextension'].notna() &
             (patient_h_risk['hiextraextension'] > 2)
     )
 
     #  Metastasi linfonodali >=3 cm ["Histology lymph node size" &gt;30 mm]
     cond4_h = (
-            patient_h_risk['hylympnodesize'].notna() &
             (patient_h_risk['hylympnodesize'] >= 30)
     )
 
@@ -1408,48 +1501,19 @@ if eval_ata_risk:
 
     # Metastasi alla diagnosi ["M value"=3 OR "M value calculate"=3]
    # cond6_h = (patient_h_risk['satoptm']==3) | (patient_h_risk['forcedm']==3)
-    cond6_h = (patient_h_risk['satoptm'] == 3)
+    cond6_h = (patient_h_risk['satoptm'] == 1)
 
     patient_h_risk= patient_h_risk[cond1_h|cond2_h|cond3_h|cond4_h|cond5_h|cond6_h]
 
-    print("Number of high risk patients: " + str(len(patient_h_risk.index)))
-
-    ### Pazienti a rischio intermedio-alto= (una qualsiasi delle seguenti condizioni)
-    patient_mh_risk = patient.copy()
-
-    #
-    # 1- Istologia aggressiva (PTC variante Tall Cell, scarsamente differenziato, sclerosante;) ["Histology
-    # subtypes" = 4, 13]
-    cond1_mh = patient_mh_risk['hihistologicsubtypes'].isin([4, 13])
-
-    # 2- Presenza di piu' di 5 metastasi del compartimento centrale ["Histology lymph node metastases" = 3
-    # AND "Histology number of metastatic L. nodes" &gt; 5]
-    cond2_mh = (patient_mh_risk['hilymphnodemetastasis'] == 3) & (
-                patient_mh_risk['hilymphnodemetastasisnum'] > 5)
-
-    # 3- Presenza di metastasi linfonodali nei compartimenti laterocervicali ["Histology lymph node
-    # metastases" &gt; 3]
-    cond3_mh = patient_mh_risk['hilymphnodemetastasis'] > 3
-
-    # 4- PTC con invasione vascolare ["Histology subtypes" = 1,2,3,4,5,10 AND "Histology vascular
-    # invasion" = 2]
-    cond4_mh = (patient_mh_risk['hihistologicsubtypes'].isin([1, 2, 3, 4, 5, 10])) & (patient_mh_risk[
-        'hivascolarinvasion'] == 2)
-
-    patient_mh_risk = patient_mh_risk[(cond1_mh | cond2_mh | cond3_mh | cond4_mh)&(~cond1_h &~cond2_h & ~cond3_h & ~cond4_h & ~cond5_h& ~cond6_h)]
-
-    print("Number of medium high risk patients: " + str(len(patient_mh_risk.index)))
-
-
-    ### Pazienti a rischio basso-intermedio=
+    ### Pazienti a rischio intermedio
     patient_lm_risk = patient.copy()
 
     # PTC (eccetto variante Tall Cell, scarsamente differenziato, sclerosante) FTC minimamente invasivo
     # ["Histology subtypes", tutti i valori eccetto 4, 8, 13] AND
-    cond1 = ~patient_lm_risk['hihistologicsubtypes'].isin([4, 8, 13])
+    cond1 = patient_lm_risk['hihistologicsubtypes'].isin([1, 2, 3, 5, 6, 7, 9, 11, 12, 14, 15])
 
     # Assenza di invasione vascolare ["Histology vascular invasion" diverso da 2] AND
-    cond2 = patient_lm_risk['hivascolarinvasion'] != 2
+    cond2 = patient_lm_risk['hivascolarinvasion'].isin([1,3])
 
     # 1- Estensione extratiroidea microscopica ["Histology extra-thyroid extension" =2] OR
     cond3 = patient_lm_risk['hiextraextension'] == 2
@@ -1457,16 +1521,26 @@ if eval_ata_risk:
     # 2- Presenza di massimo 5 metastasi del compartimento centrale ["Histology lymph node metastases" = 3
     # AND "Histology number of metastatic L. nodes" = numero compreso tra 1 e 5]
     cond4 = patient_lm_risk['hilymphnodemetastasis'] == 3
-    #cond5 = patient_lm_risk['hilymphnodemetastasisnum'].astype(int) > 0
-    #cond6 = patient_lm_risk['hilymphnodemetastasisnum'].astype(int) < 6
 
-    cond5 = patient_lm_risk['hilymphnodemetastasisnum'].isna() | (
-            (patient_lm_risk['hilymphnodemetastasisnum'] >= 0) &
-            (patient_lm_risk['hilymphnodemetastasisnum'] < 5)
+    cond5 = (
+            (patient_lm_risk['hilymphnodemetastasisnum'] >= 1) &
+            (patient_lm_risk['hilymphnodemetastasisnum'] <= 5)
     )
-    patient_lm_risk = patient_lm_risk[(cond1 & cond2 & (cond3 | (cond4 & cond5)))&(~cond1_h & ~cond2_h & ~cond3_h & ~cond4_h & ~cond5_h& ~cond6_h)&(~cond1_mh &~cond2_mh &~cond3_mh & ~cond4_mh )]
 
-    print("Number of low_medium risk patients: " + str(len(patient_lm_risk.index)))
+    cond6 = patient_lm_risk['hihistologicsubtypes'].isin([4,13])
+    cond7 = patient_lm_risk['hilymphnodemetastasis'] == 3
+    cond8 = patient_lm_risk['hilymphnodemetastasisnum'] > 5
+    cond9 = patient_lm_risk['hilymphnodemetastasis'] > 3
+    cond10 = patient_lm_risk['hihistologicsubtypes'].isin([1,2,3,4,5,10])
+    cond11 = patient_lm_risk['hivascolarinvasion'] == 2
+
+    patient_lm_risk = patient_lm_risk[
+        (cond1 & cond2 & (cond3 | (cond4 & cond5))) |
+        cond6 |
+        (cond7 & cond8) |
+        cond9 |
+        (cond10 & cond11)
+        ]
 
 
     ### Pazienti a rischio basso=
@@ -1475,38 +1549,39 @@ if eval_ata_risk:
     patient_l_risk = patient.copy()
     # ["Histology subtypes" tutti i valori eccetto 4, 8, 13] AND
     #    cond1 = ~patient_l_risk['hihistologicsubtypes'].str.endswith(('.4','.8','.13'))
-    cond1 = ~patient_l_risk['hihistologicsubtypes'].isin([4, 8, 13])
+    cond1 = patient_l_risk['hihistologicsubtypes'].isin([1, 2, 3, 5, 6, 7, 9, 11, 12, 14, 15])
 
-    # patient_l_risk = patient_l_risk[~patient_l_risk['hihistologicsubtypes'].str.endswith(('.4','.8','.13'))]
 
     # Assenza di invasione vascolare ["Histology vascular invasion" diverso da 2] AND
     # patient_l_risk = patient_l_risk[~patient_l_risk['hivascolarinvasion'].str.endswith('.2')]
-    cond2 = patient_l_risk['hivascolarinvasion'] != 2
+    cond2 = patient_l_risk['hivascolarinvasion'].isin([1,3])
 
     # Assenza o status metastasi linfonodali sconosciuto ["Histology lymph node metastases" = 1, 2] AND
     # patient_l_risk = patient_l_risk[patient_l_risk['hilymphnodemetastasis'].str.endswith(('1','2'))]
     # 22/7/2020: Assenza o status metastasi linfonodali sconosciuto [“Histology lymph node metastases” = 0, 1, 2]
-    cond3=patient_l_risk['hilymphnodemetastasis'].isna() | patient_l_risk['hilymphnodemetastasis'].isin([0, 1, 2])
+    cond3=patient_l_risk['hilymphnodemetastasis'].isna() | patient_l_risk['hilymphnodemetastasis'].isin([1, 2])
 
     # Resezione R0-R1 ["Histology surgical margins" diverso da 3] AND
     # patient_l_risk = patient_l_risk[~patient_l_risk['hysurgicalmargins'].str.endswith('.3')]
     #   cond4 = ~patient_l_risk['hysurgicalmargins'].str.endswith('.3')
-    cond4 = patient_l_risk['hysurgicalmargins'].isna() | patient_l_risk['hysurgicalmargins'].isin([0, 1, 2])
+    cond4 = patient_l_risk['hysurgicalmargins'].isna() | patient_l_risk['hysurgicalmargins'].isin([1, 2])
 
     # Estensione extratiroidea assente ["Histology extra-thyroid extension" =1]
     # patient_l_risk = patient_l_risk[patient_l_risk['hiextraextension'].astype(int) == 1]
     cond5 = patient_l_risk['hiextraextension'] == 1
-    patient_l_risk = patient_l_risk[(cond1 & cond2 & cond3 & cond4 & cond5)&(~cond1_h & ~cond2_h & ~cond3_h & ~cond4_h & ~cond5_h& ~cond6_h)&(~cond1_mh &~cond2_mh &~cond3_mh & ~cond4_mh )]
+    patient_l_risk = patient_l_risk[(cond1 & cond2 & cond3 & cond4 & cond5)]
 
-    print("Number of low risk patients: " + str(len(patient_l_risk.index)))
 
-    pl = set(patient_l_risk['id'].unique())
-    plm = set(patient_lm_risk['id'].unique())
-    pmh = set(patient_mh_risk['id'].unique())
+    # Set iniziali
+    all_ids = set(patient['id'].unique())
+
+    # Assegnazioni gerarchiche: LOW → INTERMEDIATE → HIGH
     ph = set(patient_h_risk['id'].unique())
+    plm = set(patient_lm_risk['id'].unique()) - ph
+    pl = set(patient_l_risk['id'].unique()) - ph - plm
 
-    p = set(patient['id'].unique())
-    p = p - (pl | plm | pmh | ph)
+    # Costruzione dizionario rischio
+    p_ata_risk = {}
 
     for p_id in pl:
         p_ata_risk[p_id] = "LOW RISK"
@@ -1514,24 +1589,20 @@ if eval_ata_risk:
     for p_id in plm:
         p_ata_risk[p_id] = "INTERMEDIATE RISK"
 
-    for p_id in pmh:
-        p_ata_risk[p_id] = "INTERMEDIATE RISK"
-
     for p_id in ph:
         p_ata_risk[p_id] = "HIGH RISK"
 
-    for p_id in p:
+    # Pazienti non classificati
+    unclassified = all_ids - set(p_ata_risk.keys())
+
+    for p_id in unclassified:
         p_ata_risk[p_id] = "UNKNOWN"
 
-    print("Number of unclassified patients: " + str(len(p)))
-    if debug:
-        print("pl-plm intersection: " + str(pl.intersection(plm)))
-        print("pl-pmh intersection: " + str(pl.intersection(pmh)))
-        print("pl-ph intersection: " + str(pl.intersection(ph)))
-        print("plm-pmh intersection: " + str(plm.intersection(pmh)))
-        print("plm-ph intersection: " + str(plm.intersection(ph)))
-        print("pmh-ph intersection: " + str(pmh.intersection(ph)))
-
+    log_debug("\nATA risk evaluation results")
+    log_debug(f"Number of unclassified patients: {len(unclassified)}")
+    log_debug("Number of high risk patients: " + str(len(patient_h_risk.index)))
+    log_debug("Number of intermediate risk patients: " + str(len(patient_lm_risk.index)))
+    log_debug("Number of low risk patients: " + str(len(patient_l_risk.index)))
 
 
 output_list = []
@@ -1547,6 +1618,9 @@ visits_count_12m = 0
 included_visits_count_12m = 0
 
 print(f'Processing {len(patient)} patients:')
+
+visits_by_patient = dict(tuple(visit.groupby("patient_id")))
+surgery_by_patient = dict(tuple(surgery.groupby("patient_id")))
 
 # For each patient
 for p, row in patient.iterrows():
@@ -1574,8 +1648,11 @@ for p, row in patient.iterrows():
     rtt_latest = -2
 
     # We extract all his visits and surgeries
-    visits = visit[visit['patient_id'] == p]
-    surgeries = surgery[surgery['patient_id'] == p]
+#    visits = visit[visit['patient_id'] == p]
+#    surgeries = surgery[surgery['patient_id'] == p]
+    visits = visits_by_patient.get(p, pd.DataFrame())
+    surgeries = surgery_by_patient.get(p, pd.DataFrame())
+
     surgery_count = len(surgeries.index)
     # We pre evaluate a condition required for TT alone case during rtt evaluation
     if surgery_count == 2 and len(surgery[surgery['sgapproach']==3].index) == 2:
@@ -1591,17 +1668,25 @@ for p, row in patient.iterrows():
     if surgery_count>0:
         oldest_date = min(surgeries['sgdateofsurgery'])
 
+        # We override the previous method used for establishing the
+        # most recent date by looking straightly at the dt_initial_treatment variable
+
+        most_recent_date = row['dt_initial_treatment']
+
+        if pd.isna(row['dt_initial_treatment']):
+            continue
+
         if rra == 2:
-            most_recent_date = rradate
+            most_recent_date_old_alg = rradate
             # Se Table Patients, RRA=2; [differenza RRA date [Table Patients] - Visit Date[Table Visits]
             # Se RRA date is null, [differenza date of Surgery[prima occorrenza, Table Surgery] - Visit Date[Table Visits]
-            if pd.isnull(most_recent_date):
-                most_recent_date = max(surgeries['sgdateofsurgery'])
+            if pd.isnull(most_recent_date_old_alg):
+                most_recent_date_old_alg = max(surgeries['sgdateofsurgery'])
         elif rra == 1:
             # Se Table Patients, RRA=1; [differenza date of Surgery[prima occorrenza, Table Surgery] - Visit Date[Table Visits]
-            most_recent_date = max(surgeries['sgdateofsurgery'])
+            most_recent_date_old_alg = max(surgeries['sgdateofsurgery'])
 
-        # Indepdendently of the value of rra, we also consider as surgery the most recent one
+        # Independently of the value of rra, we also consider as surgery the most recent one
         #        s = surgeries[surgeries['sgdateofsurgery'] == most_recent_date]
         s = surgeries[surgeries['sgdateofsurgery'] == max(surgeries['sgdateofsurgery'])]
         last_surgery_approach = s['sgapproach'].squeeze()
@@ -1622,7 +1707,7 @@ for p, row in patient.iterrows():
             continue
 
 
-    if len(visits.index) == 0:
+    if visits.empty:
         if debug:
             print('patient: ' + str(p) + " does not exists in visits table")
         missing_visits_count += 1
@@ -1708,6 +1793,7 @@ for p, row in patient.iterrows():
 
     else:
         first_exclusion_vis_3[p] = 1
+        continue
 
     record['patient_id'] = p
     record['rtt_old_5y'] = rtt_old_5y
@@ -1723,6 +1809,7 @@ for p, row in patient.iterrows():
     record['ata_risk'] = p_ata_risk[p]
     record['age'] = patient_age
     record['sex'] = row['sex']
+    record['rra'] = row['rra']
     record['tcddiagnosis'] = row['tcddiagnosis']
     record['sgapproach'] = last_surgery_approach
     record['sgcentralcompartmentneckdissection'] = last_sgcentralcompartmentneckdissection
@@ -1752,15 +1839,21 @@ for p, row in patient.iterrows():
     record['missing_surgery'] = missing_surgery.get(p, 0)
     record['visits_count_12m'] = visits_count_12m
     record['included_visits_count_12m'] = included_visits_count_12m
-
+    record['dt_initial_treatment'] = row['dt_initial_treatment']
+    record['reference_date_old_alg'] = most_recent_date_old_alg
     output_list.append(record)
 
-print('missing visits count: ' + str(missing_visits_count))
-print('missing surgery count: ' + str(missing_surgery_count))
+print(f"Total patients processed: {count}")
+
+print(f"Excluded {missing_visits_count} patients without visits")
+print(f"Excluded {missing_surgery_count} patients without surgeries")
+
+print(f"Patients with valid output: {len(output_list)}")
+print(f"Patients skipped during main loop: {count - len(output_list)}")
 
 print(f'Saving final report to files: {xls_output_file}, {csv_output_file}')
 output = pd.DataFrame(output_list,
-                      columns=['patient_id', 'sex', 'age', 'clinicalcentre_id', 'sgapproach', 'tcddiagnosis',
+                      columns=['patient_id', 'sex', 'age','rra', 'clinicalcentre_id', 'sgapproach', 'tcddiagnosis',
                                'prophylacticcentralneckdissection', 'sgcentralcompartmentneckdissection',
                                'sglateralcompartmentneckdissection', 'hihistologicsubtypes', 'hitumorsize',
                                'hitumoralfoci', 'hiextraextension', 'invasionofstrapmuscles', 'hilymphnodemetastasis',
@@ -1771,7 +1864,7 @@ output = pd.DataFrame(output_list,
                                'included_visits_count_12m', 'forcedm', 'satoptm', 'hysurgicalmargins',
                                'rraradioiodineactivity', 'rraradioiodineactivitynum', 'hivascolarinvasion',
                                'treat_012m', 'treat_1236m', 'treat_3660m', 'treat2_012m', 'treat2_1236m',
-                               'treat2_3660m','reference_date','reference_date_12m','reference_date_3y','reference_date_5y'])
+                               'treat2_3660m','dt_initial_treatment','reference_date_old_alg','reference_date','reference_date_12m','reference_date_3y','reference_date_5y'])
 
 # Identifica le righe con valori discordanti di ata risk
 ata_risk_discordanti = output[output['ata_risk'] != output['external_ata_risk']]
