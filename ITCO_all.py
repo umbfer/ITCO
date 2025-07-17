@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import datetime
 import dateparser
@@ -11,9 +12,10 @@ import warnings
 
 # Input and output files
 
-patients_path = "../../Downloads/ITCO/dati/giu_2022/patients_giu2022.csv"
-surgeries_path = "../../Downloads/ITCO/dati/giu_2022/surgeries_giu2022.csv"
-visits_path = "../../Downloads/ITCO/dati/giu_2022/visits_giu2022.csv"
+
+patients_path = "data/patient_10.07.csv"
+surgeries_path = "data/surgery_10.07.csv"
+visits_path = "data/visits_10.07.csv"
 
 patients_path = "data/patient_10.03.csv"
 surgeries_path = "data/surgery_10.03.csv"
@@ -29,17 +31,22 @@ csv_output_file= 'output/output_short.csv'
 # per il solo paziente con id 1234
 # filter_on_patient = 1234
 
+
+
 filter_on_patient = False
 #,"101-11198"
-patients_selection = ["1-3127"]
+patients_selection = ["1-17633"]
 
 
 use_v2 = True
 
 # Se True, valuta i criteri di inclusione/esclusione
 perform_exclusion = True
+# Se True, i pazienti escludibili sono inclusi comunque (con un set di attributi ridotti)
+include_excluded_patients = False
+
 # Se True, esclude i pazienti che non hanno alcuna surgery
-skip_missing_surgery = True
+skip_missing_surgery = False
 # Se True, esclude i pazienti che non hanno alcuna visit
 skip_missing_visit = False
 # Se True, calcola la variabile ata_risk
@@ -166,6 +173,7 @@ def get_dynamic_response_to_treatment1(v):
     visit_id = v.get('id')
 
     var_lbtgablevels = v['var_lbtgablevels']
+    abs_lbtgablevels = v['abs_lbtgablevels']
 
     structural = v['ncifsuspiciouslympnode'] == 2 or v['imgsuspiciousneck'] == 2 or \
                  v['imgsuspiciousdistantmeta'] == 2 or v['raiuptake'] > 2
@@ -174,7 +182,7 @@ def get_dynamic_response_to_treatment1(v):
         (pd.isna(v['ncsuspiciouslympnodes']) or v['ncsuspiciouslympnodes'] == 1) and
         (v['imgsuspiciousneck'] == 1 or pd.isna(v['imgsuspiciousneck'])) and
         (pd.isna(v['imgsuspiciousdistantmeta']) or v['imgsuspiciousdistantmeta'] == 1) and
-        (v['lb_basaltg'] >= 1 or v['lblstimulatedtg'] >= 10 or var_lbtgablevels > 20)
+        (v['lb_basaltg'] >= 1 or v['lblstimulatedtg'] >= 10 or  (var_lbtgablevels > 20 and abs_lbtgablevels > 0.1))
     )
 
     indeterminate = (
@@ -183,7 +191,7 @@ def get_dynamic_response_to_treatment1(v):
         (0.2 <= v['lb_basaltg'] < 1) or
         (1 <= v['lblstimulatedtg'] < 10) or
         v['lbtgab'] == 2 or
-        var_lbtgablevels <= 20
+        (var_lbtgablevels <= 20 and abs_lbtgablevels>0.1)
     )
 
     excellent = (
@@ -209,34 +217,7 @@ def get_dynamic_response_to_treatment1(v):
 
     log_debug(f"[Visit ID: {visit_id}] No category at all", level=3)
     return -1
-'''
-def get_response_to_treatment2(p, v, s):
-    if v['ncifsuspiciouslympnode'] == 2 or v['imgsuspiciousneck'] == 2 or v[
-        'imgsuspiciousdistantmeta'] == 2 or v['raiuptake'] > 2:
-        if debug:
-            print('Structural incomplete')
-        return 2
-    elif (pd.isna(v['ncsuspiciouslympnodes']) or v['ncsuspiciouslympnodes'] in [1]) and (v['imgsuspiciousneck'] in [1] or pd.isna(v['imgsuspiciousneck'])) and  (pd.isna(v['imgsuspiciousdistantmeta'])or v['imgsuspiciousdistantmeta'] in [1]) and (
-            v['lb_basaltg'] >= 5):
-        if debug:
-            print('Biochemical Incomplete')
-        return 3
-    elif (pd.isna(v['ncifsuspiciouslympnode']) or v['ncifsuspiciouslympnode'] in [1]) or v['raiuptake'] == 2 or (v['lb_basaltg'] >= 0.2 and v[
-        'lb_basaltg'] < 5) or (v['lblstimulatedtg'] >= 2 and v['lblstimulatedtg'] < 10) or v['lbtgab'] == 2:
-        if debug:
-            print('Indeterminate')
-        return 1
-    elif (pd.isna(v['ncsuspiciouslympnodes']) or v['ncsuspiciouslympnodes'] in [1]) and (v['imgsuspiciousneck'] in [1] or pd.isna(v['imgsuspiciousneck'])) and (pd.isna(v['imgsuspiciousdistantmeta'])or v['imgsuspiciousdistantmeta'] in [1]) and v['lbtgab'] == 1 and (
-             v['lb_basaltg'] < 0.2 or v['lblstimulatedtg'] < 2):
-        if debug:
-            print('Excellent')
-        return 4
 
-    if debug:
-        print('No category at all')
-    return -1
-
-'''
 def get_static_response_to_treatment2(v):
     visit_id = v.get('id')
 
@@ -294,6 +275,9 @@ def get_dynamic_response_to_treatment2(v):
 
     var_lbtgablevels = v['var_lbtgablevels']
     var_lb_basaltg = v['var_lb_basaltg']
+    abs_lbtgablevels = v['abs_lbtgablevels']
+    abs_lb_basaltg = v['abs_lb_basaltg']
+
 
     structural = (
         v['ncifsuspiciouslympnode'] == 2 or
@@ -306,16 +290,16 @@ def get_dynamic_response_to_treatment2(v):
         (pd.isna(v['ncsuspiciouslympnodes']) or v['ncsuspiciouslympnodes'] == 1) and
         (v['imgsuspiciousneck'] == 1 or pd.isna(v['imgsuspiciousneck'])) and
         (pd.isna(v['imgsuspiciousdistantmeta']) or v['imgsuspiciousdistantmeta'] == 1) and
-        (v['lb_basaltg'] >= 5) or (var_lbtgablevels > 20) or (var_lb_basaltg > 20 and v['lb_basaltg'] > 1)
+        (v['lb_basaltg'] >= 5) or (var_lbtgablevels > 20 and abs_lbtgablevels > 0.1) or (var_lb_basaltg > 20 and v['lb_basaltg'] > 1 and abs_lb_basaltg > 0.1)
     )
 
     indeterminate = (
-        (pd.isna(v['ncifsuspiciouslympnode']) or v['ncifsuspiciouslympnode'] == 1) or
+        (v['ncifsuspiciouslympnode'] == 1) or
         v['raiuptake'] == 2 or
         (0.2 <= v['lb_basaltg'] < 5) or
         (2 <= v['lblstimulatedtg'] < 10) or
         (v['lbtgab'] == 2) or
-        (var_lbtgablevels <= 20)
+        (var_lbtgablevels <= 20 and abs_lbtgablevels>0.1)
     )
 
     excellent = (
@@ -418,6 +402,9 @@ def get_dynamic_response_to_treatment3(v):
 
     var_lbtgablevels = v['var_lbtgablevels']
     var_lb_basaltg = v['var_lb_basaltg']
+    abs_lbtgablevels = v['abs_lbtgablevels']
+    abs_lb_basaltg = v['abs_lb_basaltg']
+
 
     structural = (
             v['ncifsuspiciouslympnode'] == 2 or
@@ -427,10 +414,13 @@ def get_dynamic_response_to_treatment3(v):
     )
 
     biochemical = (
-            ( v['ncsuspiciouslympnodes'] == 1) and
-            (v['imgsuspiciousneck'] == 1) and
-            (v['imgsuspiciousdistantmeta'] == 1) and
-            ((var_lbtgablevels > 20) or ((var_lb_basaltg > 20 and v['lb_basaltg'] > 10 )))
+            v['ncsuspiciouslympnodes'] == 1 and
+            v['imgsuspiciousneck'] == 1 and
+            v['imgsuspiciousdistantmeta'] == 1 and
+            (
+                    (var_lbtgablevels > 20 and abs_lbtgablevels > 0.1) or
+                    (var_lb_basaltg > 20 and v['lb_basaltg'] > 10 and abs_lb_basaltg > 0.1)
+            )
     )
 
     indeterminate = (
@@ -478,16 +468,21 @@ def determine_treatment(p, s):
             approach = matching_surgery["sgapproach"].iloc[0]
 
             if pd.isna(approach):
-                return 0
+                return np.nan
             elif approach in [1, 2]:
                 return 2
             elif approach == 3:
-                return 3
+                # Controlla se esiste un solo approccio chirurgico valido per il paziente
+                patient_approaches = s["sgapproach"].dropna()
+                if len(patient_approaches) == 1:
+                    return 3
+                else:
+                    return 0
             else:
                 return 0
         else:
-            # dt_initial_treatment ≠ sgdateofsurgery
-            return 0
+            # dt_initial_treatment <> sgdateofsurgery
+            return np.nan
 
     return 0
 
@@ -501,7 +496,11 @@ def get_rtt(reference_date, visits, s, p, mode):
     rtt_old = -2
     rtt_new = -2
 
-    treatment = determine_treatment(p,s)
+    treatment = determine_treatment(p, s) if not s.empty else 0
+
+    if pd.isna(reference_date) or visits.empty:
+        return (rtt_old, rtt_new, treatment, None)
+
     '''
     treatment = 0
     dt_init = p['dt_initial_treatment']
@@ -594,7 +593,10 @@ def get_new_rtt(reference_date, visits, s, p, mode):
     rtt_old = -2
     rtt_new = -2
 
-    treatment = determine_treatment(p,s)
+    treatment = determine_treatment(p, s) if not s.empty else 0
+
+    if pd.isna(reference_date) or visits.empty:
+        return (rtt_old, rtt_new, treatment, None)
 
     p = p.squeeze()
 
@@ -605,17 +607,6 @@ def get_new_rtt(reference_date, visits, s, p, mode):
         # Individuo l'ultima visita precedente three_years_closest, se esistente. Altrimenti, None
         earlier_visits = visits[visits['date'] < closest_date]
 
-        # necessario per il supporto dei criteri di Siena
-        '''
-        if len(earlier_visits.index) > 0:
-            closest_date_prev = min(earlier_visits['date'], key=lambda x: abs(x - reference_date))
-            prev_v = visits[visits['date'] == closest_date_prev].sample(n=1).squeeze()
-            prev_v=visits[visits['date'] == closest_date_prev]
-            prev_v=prev_v.loc[prev_v['id'].idxmax()]
-        else:
-            prev_v = None
-
-        '''
         log_debug('reference date (RTT): ' + str(reference_date),2)
         log_debug('closest date (RTT): ' + str(closest_date),2)
 
@@ -665,7 +656,10 @@ def get_new_rtt_latest(visits, s, p, mode):
     rtt_old = -2
     rtt_new = -2
 
-    treatment = determine_treatment(p,s)
+    treatment = determine_treatment(p, s) if not s.empty else 0
+
+    if visits.empty:
+        return (rtt_old, rtt_new, treatment)
 
     p = p.squeeze()
 
@@ -728,7 +722,11 @@ def get_rtt_latest(visits, s, p, mode):
     rtt_old = -2
     rtt_new = -2
 
-    treatment = 0
+    treatment = determine_treatment(p, s) if not s.empty else 0
+
+    if visits.empty:
+        return (rtt_old, rtt_new, treatment)
+
     dt_init = p['dt_initial_treatment']
     rra_date = p['rradate']
 
@@ -868,7 +866,7 @@ def load_patients_v1(patients_path):
 def load_patients_v2(patients_path):
    # p=pd.read_csv(patients_path, sep="\t",low_memory=False, decimal=".",thousands=",")
 
-    df = pd.read_csv(patients_path, sep=",", decimal=".", thousands=",", na_values="NA")
+    df = pd.read_csv(patients_path, sep=",", decimal=".", thousands=",", na_values="NA", low_memory=False)
 
     # Rinomina le colonne per farle combaciare con il vecchio schema
     # Ad esempio: record_id -> id
@@ -881,7 +879,8 @@ def load_patients_v2(patients_path):
     df["birthdate"] = pd.NaT
 
 
-    df["age"].fillna(-1, inplace=True)
+
+    df["age"] = df["age"].fillna(-1)
 
     df["forcedm"] = 0
 
@@ -928,8 +927,13 @@ def load_patients_v2(patients_path):
     if filter_on_patient:
         new_patient = new_patient[new_patient['id'].isin(patients_selection)]
 
-    new_patient.rradate.fillna('',inplace=True)
-    new_patient.birthdate.fillna('',inplace=True)
+    #new_patient.rradate.fillna('',inplace=True)
+    #new_patient.birthdate.fillna('',inplace=True)
+
+
+    new_patient.rradate = new_patient.rradate.fillna('')
+    new_patient.birthdate = new_patient.birthdate.fillna('')
+
 #   nel formato v2 le date sono nella forma US
 #   new_patient.rradate =new_patient.rradate.apply(lambda x: dateparser.parse(x, languages=['it']))
 #   new_patient.birthdate =new_patient.birthdate.apply(lambda x: dateparser.parse(x, languages=['it']))
@@ -1001,7 +1005,7 @@ def load_surgery_v1(surgeries_path):
 
 def load_surgery_v2(surgeries_path):
     #s=pd.read_csv(surgeries_path, sep="\t", decimal=".",thousands=",")
-    df = pd.read_csv(surgeries_path, sep=",", decimal=".", thousands=",")
+    df = pd.read_csv(surgeries_path, sep=",", decimal=".", thousands=",", low_memory=False)
 
     rename_map = {
         "record_id": "patient_id"
@@ -1080,7 +1084,6 @@ def load_visits_v1(visits_path):
 #         'raiuptake': 0, 'lbtgab': 0, 'lb_basaltg': 0, 'lbtgablevels': 0})
 
 
-#    new_visit.id = pd.to_numeric(new_visit.id, downcast='integer')
     new_visit.ncnormalresidualtissue = pd.to_numeric(new_visit.ncnormalresidualtissue, downcast='integer')
     new_visit.ncsuspiciousresidualtissue = pd.to_numeric(new_visit.ncsuspiciousresidualtissue, downcast='integer')
     new_visit.ncsuspiciouslympnodes = pd.to_numeric(new_visit.ncsuspiciouslympnodes, downcast='integer')
@@ -1108,7 +1111,7 @@ def load_visits_v2(visits_path):
     }
 
 
-    v = pd.read_csv(visits_path, sep=",", skiprows=0, decimal=".", thousands=",", dtype=dtype_map)
+    v = pd.read_csv(visits_path, sep=",", skiprows=0, decimal=".", thousands=",", dtype=dtype_map, low_memory=False)
 
     rename_map = {
         "record_id": "patient_id",
@@ -1143,6 +1146,7 @@ def load_visits_v2(visits_path):
         "ncifsuspiciouslympnode",
         "imgsuspiciousneck",
         "imgsuspiciousdistantmeta",
+        "lbtgassaysfnsensitivity",
         "dsevidence",
         "raiuptake",
         "lbtgab",
@@ -1181,15 +1185,20 @@ def load_visits_v2(visits_path):
     #new_visit.date =new_visit.date.apply(lambda x: dateparser.parse(x, languages=['it']))
     #new_visit.date = new_visit.date.apply(lambda x: dateparser.parse(x))
 
-    new_visit['trrai'].replace({1: 0, 2: 1}, regex=True, inplace=True)
-    new_visit['trsurgery'].replace({1: 0, 2: 1}, regex=True, inplace=True)
-    new_visit['trexternalradio'].replace({1: 0, 2: 1}, regex=True, inplace=True)
-    new_visit['trother'].replace({1: 0, 2: 1}, regex=True, inplace=True)
+    new_visit['trrai'] = new_visit['trrai'].replace({1: 0, 2: 1})
+    new_visit['trsurgery'] = new_visit['trsurgery'].replace({1: 0, 2: 1})
+    new_visit['trexternalradio'] = new_visit['trexternalradio'].replace({1: 0, 2: 1})
+    new_visit['trother'] = new_visit['trother'].replace({1: 0, 2: 1})
+
     # NaN are automatically converted to NaT, by means of errors=coerce
 #    new_visit['date']=pd.to_datetime(new_visit['date'],errors='coerce')
-    new_visit=new_visit.fillna(
-        {'ncifsuspiciouslympnode': 0, 'imgsuspiciousneck': 0, 'imgsuspiciousdistantmeta': 0, 'dsevidence': 0,
-         'raiuptake': 0, 'lbtgab': 0, 'lb_basaltg': 0, 'lbtgablevels': 0})
+#    new_visit=new_visit.fillna(
+#        {'ncifsuspiciouslympnode': 0, 'imgsuspiciousneck': 0, 'imgsuspiciousdistantmeta': 0, 'dsevidence': 0,
+#         'raiuptake': 0, 'lbtgab': 0, 'lb_basaltg': 0, 'lbtgablevels': 0})
+
+    # Disattiviamo il filling automatico degli na dal momento
+    # che questi casi (na) sono gestiti dal codice successivo
+    new_visit = new_visit.fillna({'lbtgablevels': 0})
 
 
     new_visit.id = pd.to_numeric(new_visit.id, downcast='integer')
@@ -1311,35 +1320,28 @@ if perform_exclusion:
         # 1. CRF incomplete o non verificate
         if row['laboratory_complete'] in [0, 1] or \
                 row['neck_us_complete'] in [0, 1] or \
-                row['other_imaging_studies_complete'] in [0, 1] or \
                 row['disease_status_complete'] in [0, 1]:
             excluded_visit[row['id']] = 1
             first_exclusion_vis_1[row['patient_id']] = 1
             exclusion_criteria1 += 1
             continue
 
-        # 2. CRF RAI_SCAN incompleta (rai_scan_complete = 0)
-        if row['rai_scan_complete'] == 0:
-            excluded_visit[row['id']] = 1
-            first_exclusion_vis_1[row['patient_id']] = 1
-            exclusion_criteria2 += 1
-            continue
 
-        # 3. Mancante Tireoglobulina [Laboratory Basal Tg (ng/mL) missing AND Laboratory Stimulated Tg (ng/mL) missing]
+        # 2. Mancante Tireoglobulina [Laboratory Basal Tg (ng/mL) missing AND Laboratory Stimulated Tg (ng/mL) missing]
         if pd.isna(row['lb_basaltg']) and pd.isna(row['lblstimulatedtg']):
             excluded_visit[row['id']] = 1
             first_exclusion_vis_1[row['patient_id']] = 1
             exclusion_criteria3 += 1
             continue
 
-        # 4. Mancante anticorpi anti-tireoglobulina [Laboratory TgAb avalable=0]
+        # 3. Mancante anticorpi anti-tireoglobulina [Laboratory TgAb avalable=0]
         if pd.isna(row['lbtgab']):
             excluded_visit[row['id']] = 1
             first_exclusion_vis_1[row['patient_id']] = 1
             exclusion_criteria4 += 1
             continue
 
-        # 5. Mancante ecografia [Neck US normal residual tissue=0 OR Neck US suspicious tissue in thyroid bed=0 OR Neck US suspicious lymph nodes=0]
+        # 4. Mancante ecografia [Neck US normal residual tissue=0 OR Neck US suspicious tissue in thyroid bed=0 OR Neck US suspicious lymph nodes=0]
         if pd.isna(row['ncnormalresidualtissue']) or pd.isna(row['ncsuspiciousresidualtissue']) or pd.isna(
                 row['ncsuspiciouslympnodes']):
             excluded_visit[row['id']] = 1
@@ -1347,69 +1349,71 @@ if perform_exclusion:
             exclusion_criteria5 += 1
             continue
 
-        # 6. Visita precedente al 2013 (visit_date < 01/01/2013)
+        # 5. Visita precedente al 2013 (visit_date < 01/01/2013)
         if row['date'] < pd.Timestamp("2013-01-01"):
             excluded_visit[row['id']] = 1
             first_exclusion_vis_1[row['patient_id']] = 1
             exclusion_criteria6 += 1
             continue
-print(f'Exclusion criteria 1:  {exclusion_criteria1}')
-print(f'Exclusion criteria 2:  {exclusion_criteria2}')
-print(f'Exclusion criteria 3:  {exclusion_criteria3}')
-print(f'Exclusion criteria 4:  {exclusion_criteria4}')
-print(f'Exclusion criteria 5:  {exclusion_criteria5}')
-print(f'Exclusion criteria 6:  {exclusion_criteria6}')
+
+if perform_exclusion:
+    print(f'Exclusion criteria 1:  {exclusion_criteria1}')
+    print(f'Exclusion criteria 2:  {exclusion_criteria2}')
+    print(f'Exclusion criteria 3:  {exclusion_criteria3}')
+    print(f'Exclusion criteria 4:  {exclusion_criteria4}')
+    print(f'Exclusion criteria 5:  {exclusion_criteria5}')
+    print(f'Exclusion criteria 6:  {exclusion_criteria6}')
 
 
-def get_values_from_prev_visit_old(row):
-    patient_id = row["patient_id"]
-    current_date = row["date"]
-
-    # Cerca visite precedenti dello stesso paziente
-    previous_visits = visit[
-        (visit["patient_id"] == patient_id) &
-        (visit["date"] < current_date)
-    ]
-
-    if previous_visits.empty:
-        return pd.Series(
-            [-1, -1, -1, -1, -1, -1],
-            index=[
-                "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
-                "var_lbtgablevels", "var_lb_basaltg"
-            ]
-        )
-
-    # Estrai la visita precedente più recente
-    prev_row = previous_visits.loc[previous_visits["date"].idxmax()]
-
-    prev_id = int(prev_row.get("id", -1))
-    prev_lbtgab = int(prev_row.get("lbtgab", -1))
-    prev_lbtgablevels = float(prev_row.get("lbtgablevels", -1))
-    prev_lb_basaltg = float(prev_row.get("lb_basaltg", -1))
-
-    # Calcolo delle variazioni (percentuali), con fallback a -1
-    if pd.notna(row["lbtgablevels"]) and pd.notna(prev_lbtgablevels) and prev_lbtgablevels != 0:
-        var_lbtgablevels = ((row["lbtgablevels"] - prev_lbtgablevels) / prev_lbtgablevels) * 100
-    else:
-        var_lbtgablevels = -1
-
-    if pd.notna(row["lb_basaltg"]) and pd.notna(prev_lb_basaltg) and prev_lb_basaltg != 0:
-        var_lb_basaltg = ((row["lb_basaltg"] - prev_lb_basaltg) / prev_lb_basaltg) * 100
-    else:
-        var_lb_basaltg = -1
-
-    return pd.Series([
-        prev_id,
-        prev_lbtgab,
-        prev_lbtgablevels,
-        prev_lb_basaltg,
-        var_lbtgablevels,
-        var_lb_basaltg
-    ], index=[
-        "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
-        "var_lbtgablevels", "var_lb_basaltg"
-    ])
+# def get_values_from_prev_visit_old(row):
+#     patient_id = row["patient_id"]
+#     current_date = row["date"]
+#
+#     # Cerca visite precedenti dello stesso paziente
+#     previous_visits = visit[
+#         (visit["patient_id"] == patient_id) &
+#         (visit["date"] < current_date)
+#     ]
+#
+#     if previous_visits.empty:
+#         return pd.Series(
+#             [-1, -1, -1, -1, -1, -1],
+#             index=[
+#                 "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
+#                 "var_lbtgablevels", "var_lb_basaltg"
+#             ]
+#         )
+#
+#     # Estrai la visita precedente più recente
+#     prev_row = previous_visits.loc[previous_visits["date"].idxmax()]
+#
+#     prev_id = int(prev_row.get("id", -1))
+#     prev_lbtgab = int(prev_row.get("lbtgab", -1))
+#     prev_lbtgablevels = float(prev_row.get("lbtgablevels", -1))
+#     prev_lb_basaltg = float(prev_row.get("lb_basaltg", -1))
+#
+#     # Calcolo delle variazioni (percentuali), con fallback a -1
+#     if pd.notna(row["lbtgablevels"]) and pd.notna(prev_lbtgablevels) and prev_lbtgablevels != 0:
+#         var_lbtgablevels = ((row["lbtgablevels"] - prev_lbtgablevels) / prev_lbtgablevels) * 100
+#     else:
+#         var_lbtgablevels = -1
+#
+#     if pd.notna(row["lb_basaltg"]) and pd.notna(prev_lb_basaltg) and prev_lb_basaltg != 0:
+#         var_lb_basaltg = ((row["lb_basaltg"] - prev_lb_basaltg) / prev_lb_basaltg) * 100
+#     else:
+#         var_lb_basaltg = -1
+#
+#     return pd.Series([
+#         prev_id,
+#         prev_lbtgab,
+#         prev_lbtgablevels,
+#         prev_lb_basaltg,
+#         var_lbtgablevels,
+#         var_lb_basaltg
+#     ], index=[
+#         "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
+#         "var_lbtgablevels", "var_lb_basaltg"
+#     ])
 
 # Individuo la visita precedente più recent e calcolo
 # le variazioni percentuali per i due parametri
@@ -1425,10 +1429,10 @@ def get_values_from_prev_visit(row):
 
     if previous_visits.empty:
         return pd.Series(
-            [-1, -1, -1, -1, -1, -1],
+            [-1, -1, -1, -1, -1, -1, -1, -1],
             index=[
                 "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
-                "var_lbtgablevels", "var_lb_basaltg"
+                "var_lbtgablevels", "var_lb_basaltg", "abs_lbtgablevels", "abs_lb_basaltg"
             ]
         )
 
@@ -1438,7 +1442,7 @@ def get_values_from_prev_visit(row):
 
     # Estrai i valori precedenti
     prev_id = int(prev_row["id"])
-    prev_lbtgab = int(prev_row["lbtgab"])
+    prev_lbtgab = int(prev_row["lbtgab"]) if pd.notna(prev_row["lbtgab"]) else 0
     prev_lbtgablevels = int(prev_row["lbtgablevels"])
     prev_lb_basaltg = float(prev_row["lb_basaltg"])
 
@@ -1453,23 +1457,46 @@ def get_values_from_prev_visit(row):
     else:
         var_lb_basaltg = None
 
+    # Calcolo differenze assolute
+    if pd.notna(row["lbtgablevels"]) and pd.notna(prev_lbtgablevels):
+        abs_lbtgablevels = (row["lbtgablevels"] - prev_lbtgablevels) * 100
+    else:
+        abs_lbtgablevels = None
+
+    if (
+            pd.notna(row["lb_basaltg"]) and
+            pd.notna(prev_lb_basaltg) and
+            pd.notna(row["lbtgassaysfnsensitivity"]) and
+            row["lb_basaltg"] >= row["lbtgassaysfnsensitivity"]
+    ):
+        abs_lb_basaltg = row["lb_basaltg"] - prev_lb_basaltg
+    else:
+        abs_lb_basaltg = None
+
     return pd.Series([
         prev_id,
         prev_lbtgab,
         prev_lbtgablevels,
         prev_lb_basaltg,
         var_lbtgablevels,
-        var_lb_basaltg
+        var_lb_basaltg,
+        abs_lbtgablevels,
+        abs_lb_basaltg
     ], index=[
-        "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
-        "var_lbtgablevels", "var_lb_basaltg"
+        "prev_id",
+        "prev_lbtgab",
+        "prev_lbtgablevels",
+        "prev_lb_basaltg",
+        "var_lbtgablevels",
+        "var_lb_basaltg",
+        "abs_lbtgablevels",
+        "abs_lb_basaltg"
     ])
-
 if not visit.empty:
     xxx = visit.apply(get_values_from_prev_visit, axis=1)
     visit[[
         "prev_id", "prev_lbtgab", "prev_lbtgablevels", "prev_lb_basaltg",
-        "var_lbtgablevels", "var_lb_basaltg"
+        "var_lbtgablevels", "var_lb_basaltg", "abs_lbtgablevels", "abs_lb_basaltg"
     ]] = xxx
 
 
@@ -1633,6 +1660,12 @@ for p, row in patient.iterrows():
     rradate = row['rradate']
     rra = row['rra']
 
+    if rra == 2 and pd.isna(rradate):
+        missing_rra_date = 1
+    else:
+        missing_rra_date = 0
+
+
     count += 1
     if count%1000 == 0:
         print(count)
@@ -1661,9 +1694,18 @@ for p, row in patient.iterrows():
         row['two_sgapproach_three'] = False
     row['surgery_count'] = surgery_count
 
+    if treatment == 3 and surgeries["sgapproach"].dropna().shape[0] > 1:
+        lobectomy_check = 1
+    else:
+        lobectomy_check = 0
+
     last_surgery_approach = -1
+
     last_sgcentralcompartmentneckdissection = -1
     last_sglateralcompartmentneckdissection = -1
+    last_prophylacticcentralneckdissection  = -1
+
+    most_recent_date = row['dt_initial_treatment']
 
     if surgery_count>0:
         oldest_date = min(surgeries['sgdateofsurgery'])
@@ -1671,10 +1713,10 @@ for p, row in patient.iterrows():
         # We override the previous method used for establishing the
         # most recent date by looking straightly at the dt_initial_treatment variable
 
-        most_recent_date = row['dt_initial_treatment']
 
         if pd.isna(row['dt_initial_treatment']):
-            continue
+            if perform_exclusion:
+                continue
 
         if rra == 2:
             most_recent_date_old_alg = rradate
@@ -1690,9 +1732,21 @@ for p, row in patient.iterrows():
         #        s = surgeries[surgeries['sgdateofsurgery'] == most_recent_date]
         s = surgeries[surgeries['sgdateofsurgery'] == max(surgeries['sgdateofsurgery'])]
         last_surgery_approach = s['sgapproach'].squeeze()
-        last_sgcentralcompartmentneckdissection = s['sgcentralcompartmentneckdissection'].squeeze()
-        last_sglateralcompartmentneckdissection = s['sglateralcompartmentneckdissection'].squeeze()
-        last_prophylacticcentralneckdissection = s['prophylacticcentralneckdissection'].squeeze()
+
+        #last_sgcentralcompartmentneckdissection = s['sgcentralcompartmentneckdissection'].squeeze()
+
+        if (surgeries['sgcentralcompartmentneckdissection'] == 2).any():
+            last_sgcentralcompartmentneckdissection = 2
+
+#        last_sglateralcompartmentneckdissection = s['sglateralcompartmentneckdissection'].squeeze()
+
+        if (surgeries['sglateralcompartmentneckdissection'] == 2).any():
+            last_sglateralcompartmentneckdissection = 2
+
+#        last_prophylacticcentralneckdissection = s['prophylacticcentralneckdissection'].squeeze()
+
+        if (surgeries['prophylacticcentralneckdissection'] == 2).any():
+            last_prophylacticcentralneckdissection = 2
 
         if use_v2:
             patient_age = row['age']
@@ -1792,8 +1846,9 @@ for p, row in patient.iterrows():
 
 
     else:
-        first_exclusion_vis_3[p] = 1
-        continue
+        if perform_exclusion:
+            first_exclusion_vis_3[p] = 1
+            continue
 
     record['patient_id'] = p
     record['rtt_old_5y'] = rtt_old_5y
@@ -1812,8 +1867,11 @@ for p, row in patient.iterrows():
     record['rra'] = row['rra']
     record['tcddiagnosis'] = row['tcddiagnosis']
     record['sgapproach'] = last_surgery_approach
+
     record['sgcentralcompartmentneckdissection'] = last_sgcentralcompartmentneckdissection
     record['sglateralcompartmentneckdissection'] = last_sglateralcompartmentneckdissection
+    record['prophylacticcentralneckdissection'] = last_prophylacticcentralneckdissection
+
     record['hihistologicsubtypes'] = row['hihistologicsubtypes']
     record['hitumorsize'] = row['hitumorsize']
     record['hitumoralfoci'] = row['hitumoralfoci']
@@ -1822,7 +1880,6 @@ for p, row in patient.iterrows():
     record['hilymphnodemetastasis'] = row['hilymphnodemetastasis']
     record['hinumberofremovedlymphnodes'] = row['hinumberofremovedlymphnodes']
     record['clinicalcentre_id'] = row['clinicalcentre_id']
-    record['prophylacticcentralneckdissection'] = last_prophylacticcentralneckdissection
     record['satoptm'] = row['satoptm']
     record['forcedm'] = row['forcedm']
     record['external_ata_risk'] = row['external_ata_risk']
@@ -1841,12 +1898,16 @@ for p, row in patient.iterrows():
     record['included_visits_count_12m'] = included_visits_count_12m
     record['dt_initial_treatment'] = row['dt_initial_treatment']
     record['reference_date_old_alg'] = most_recent_date_old_alg
+    record['lobectomy_check'] = lobectomy_check
+    record['missing_rra_date'] = missing_rra_date
+
     output_list.append(record)
 
 print(f"Total patients processed: {count}")
-
-print(f"Excluded {missing_visits_count} patients without visits")
-print(f"Excluded {missing_surgery_count} patients without surgeries")
+if skip_missing_visit:
+    print(f"Excluded {missing_visits_count} patients without visits")
+if skip_missing_surgery:
+    print(f"Excluded {missing_surgery_count} patients without surgeries")
 
 print(f"Patients with valid output: {len(output_list)}")
 print(f"Patients skipped during main loop: {count - len(output_list)}")
@@ -1863,6 +1924,7 @@ output = pd.DataFrame(output_list,
                                'first_exclusion_vis_3', 'missing_visit', 'missing_surgery', 'visits_count_12m',
                                'included_visits_count_12m', 'forcedm', 'satoptm', 'hysurgicalmargins',
                                'rraradioiodineactivity', 'rraradioiodineactivitynum', 'hivascolarinvasion',
+                               'lobectomy_check','missing_rra_date',
                                'treat_012m', 'treat_1236m', 'treat_3660m', 'treat2_012m', 'treat2_1236m',
                                'treat2_3660m','dt_initial_treatment','reference_date_old_alg','reference_date','reference_date_12m','reference_date_3y','reference_date_5y'])
 
